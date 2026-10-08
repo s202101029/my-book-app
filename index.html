@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的閱讀 App (Book Tracker)</title>
+
+  <!-- 📱 專屬 App 桌面圖示設定 -->
+  <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3145/3145765.png">
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3145/3145765.png">
+
+  <!-- 🚀 Web App 全螢幕與主題顏色設定 -->
+  <meta name="theme-color" content="#10b981">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="藏書追蹤">
+
+  <!-- Firebase SDK -->
+  <script defer src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background-color: #f1f5f9; color: #0f172a; padding: 16px; max-width: 900px; margin: 0 auto; }
+    
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; background: white; padding: 12px 16px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    h1 { font-size: 18px; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+    
+    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card-title { font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #059669; display: flex; justify-content: space-between; align-items: center; }
+    
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; }
+    input:focus, select:focus { border-color: #10b981; }
+    
+    .btn { background: #10b981; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; font-size: 15px; }
+    .btn:hover { background: #059669; }
+    .btn-auth { background: #4f46e5; width: auto; padding: 6px 12px; font-size: 13px; margin: 0; }
+    .btn-auth.is-logged-in { background: #059669; }
+    .btn-danger { background: #ef4444; width: auto; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; color: white; cursor: pointer; }
+    .btn-read { background: #64748b; width: auto; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; color: white; cursor: pointer; }
+    .btn-read.is-read { background: #10b981; }
+    .btn-sm-text { background: none; border: none; color: #2563eb; font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+    .stats { display: flex; justify-content: space-around; text-align: center; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 10px; margin-bottom: 16px; }
+    .stat-num { font-size: 18px; font-weight: bold; color: #047857; }
+    .stat-label { font-size: 11px; color: #065f46; }
+
+    /* 搜尋與過濾區塊 */
+    .filter-bar { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    @media (max-width: 600px) { .filter-bar { grid-template-columns: 1fr; } }
+
+    /* 標籤 Tag 樣式 */
+    .tag-container { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 16px; font-size: 12px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; cursor: pointer; user-select: none; }
+    .tag-chip.active { background: #10b981; color: white; border-color: #059669; }
+    .tag-chip .remove-tag { font-size: 10px; margin-left: 2px; color: #ef4444; }
+
+    .book-item { background: white; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #10b981; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: flex-start; }
+    .book-info h3 { font-size: 15px; margin-bottom: 4px; }
+    .book-info p { font-size: 12px; color: #64748b; margin-bottom: 2px; }
+    .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #e2e8f0; color: #475569; margin-right: 4px; }
+    .badge-cat { background: #dbeafe; color: #1e40af; }
+    
+    .sync-status { font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; display: inline-block; }
+    .status-dot.online { background: #10b981; }
+
+    .error-banner { background-color: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: none; }
+
+    /* 管理標籤視窗 */
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal.hidden { display: none; }
+    .modal-content { background: white; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>📚 我的閱讀 App</h1>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div class="sync-status">
+        <span class="status-dot" id="syncDot"></span>
+        <span id="syncText">本地存儲</span>
+      </div>
+      <button id="authBtn" class="btn btn-auth">登入 Google 雲端</button>
+    </div>
+  </header>
+
+  <div id="errorBanner" class="error-banner"></div>
+
+  <!-- 數據統計 -->
+  <div class="stats">
+    <div>
+      <div class="stat-num" id="statCount">0</div>
+      <div class="stat-label">總藏書</div>
+    </div>
+    <div>
+      <div class="stat-num" id="statSpent">NT\$ 0</div>
+      <div class="stat-label">累積金額</div>
+    </div>
+    <div>
+      <div class="stat-num" id="statRead">0</div>
+      <div class="stat-label">已讀完</div>
+    </div>
+  </div>
+
+  <!-- 新增表單 -->
+  <div class="card">
+    <div class="card-title">
+      <span>➕ 快速新增書籍</span>
+      <button type="button" class="btn-sm-text" id="manageTagsBtn">⚙️ 管理自訂分類標籤</button>
+    </div>
+    <form id="addBookForm">
+      <div class="form-grid">
+        <input type="text" id="title" placeholder="書名 (必填)" required>
+        <input type="text" id="author" placeholder="作者">
+        <input type="text" id="publisher" placeholder="出版社">
+        <input type="text" id="platform" placeholder="購買平台 (如: 博客來)">
+        <input type="number" id="price" placeholder="價格 (NT\$)" min="0">
+        <input type="date" id="purchaseDate">
+        <select id="format">
+          <option value="ebook">📱 電子書</option>
+          <option value="physical">📖 實體書</option>
+        </select>
+        <select id="readStatus">
+          <option value="unread">📖 未讀</option>
+          <option value="read">📗 已讀完</option>
+        </select>
+      </div>
+
+      <!-- 分類標籤點選區 -->
+      <div style="margin-top: 10px;">
+        <label style="font-size: 12px; color: #64748b; font-weight: bold;">選擇分類標籤：</label>
+        <div id="formTagContainer" class="tag-container"></div>
+      </div>
+
+      <button type="submit" class="btn" id="submitBtn">儲存書籍紀錄</button>
+    </form>
+  </div>
+
+  <!-- 搜尋與書籍清單 -->
+  <div class="card">
+    <div class="card-title">📖 我的藏書列表</div>
+    
+    <!-- 搜尋與過濾 Bar -->
+    <div class="filter-bar">
+      <input type="text" id="searchInput" placeholder="🔍 搜尋書名、作者、出版社或標籤...">
+      <select id="filterCategory">
+        <option value="all">所有分類標籤</option>
+      </select>
+      <select id="filterRead">
+        <option value="all">所有閱讀狀態</option>
+        <option value="unread">📖 未讀</option>
+        <option value="read">📗 已讀完</option>
+      </select>
+    </div>
+
+    <div id="bookList"></div>
+  </div>
+
+  <!-- 管理標籤彈窗 -->
+  <div id="tagModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 12px;">⚙️ 管理自訂分類標籤</h3>
+      <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+        <input type="text" id="newTagInput" placeholder="新標籤名稱 (如: 漫畫, BL, 輕小說)">
+        <button type="button" id="addNewTagBtn" class="btn" style="width: auto; margin:0; padding: 6px 12px; font-size: 13px;">新增</button>
+      </div>
+      <div id="modalTagList" class="tag-container" style="max-height: 150px; overflow-y: auto;"></div>
+      <button type="button" id="closeTagModalBtn" class="btn btn-read" style="width: 100%; margin-top: 16px;">完成並關閉</button>
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCBj2rkku_q1nVd0KgHynjy25V5O1ehdVQ",
+      authDomain: "book-app-bdd04.firebaseapp.com",
+      projectId: "book-app-bdd04",
+      storageBucket: "book-app-bdd04.firebasestorage.app",
+      messagingSenderId: "367137457852",
+      appId: "1:367137457852:web:affeead5e79eeb943bb2b9",
+      measurementId: "G-B1RL53R4PP"
+    };
+
+    let books = [];
+    let categories = ['漫畫', '輕小說', 'BL', '文學', '實用書']; // 預設類別
+    let selectedFormTags = [];
+
+    let db = null;
+    let auth = null;
+    let currentUser = null;
+
+    // 載入本地存儲
+    try {
+      books = JSON.parse(localStorage.getItem('my_books_data') || '[]');
+      const savedCats = localStorage.getItem('my_categories_data');
+      if (savedCats) categories = JSON.parse(savedCats);
+    } catch(e) { books = []; }
+
+    function showError(msg) {
+      const banner = document.getElementById('errorBanner');
+      banner.style.display = 'block';
+      banner.innerHTML = msg;
+    }
+
+    function checkAndInitFirebase() {
+      if (window.firebase) {
+        try {
+          if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+          db = firebase.firestore();
+          auth = firebase.auth();
+
+          auth.onAuthStateChanged(user => {
+            currentUser = user;
+            const authBtn = document.getElementById('authBtn');
+            const syncDot = document.getElementById('syncDot');
+            const syncText = document.getElementById('syncText');
+
+            if (user) {
+              authBtn.textContent = '已登入 (' + (user.displayName || user.email.split('@')[0]) + ')';
+              authBtn.classList.add('is-logged-in');
+              syncDot.classList.add('online');
+              syncText.textContent = '雲端連線中';
+              loadCloudData();
+            } else {
+              authBtn.textContent = '登入 Google 雲端';
+              authBtn.classList.remove('is-logged-in');
+              syncDot.classList.remove('online');
+              syncText.textContent = '本地存儲';
+            }
+          });
+        } catch (err) { console.error("Firebase init err:", err); }
+      } else {
+        setTimeout(checkAndInitFirebase, 1000);
+      }
+    }
+
+    // 渲染表單與篩選選單的標籤
+    function renderCategoryUI() {
+      // 1. 表單點選區
+      const formContainer = document.getElementById('formTagContainer');
+      formContainer.innerHTML = categories.map(cat => {
+        const isSelected = selectedFormTags.includes(cat);
+        return `<span class="tag-chip ${isSelected ? 'active' : ''}" onclick="toggleFormTag('${cat}')">${cat}</span>`;
+      }).join('');
+
+      // 2. 下拉搜尋選單
+      const filterSelect = document.getElementById('filterCategory');
+      const currentVal = filterSelect.value;
+      filterSelect.innerHTML = '<option value="all">所有分類標籤</option>' + categories.map(cat => 
+        `<option value="${cat}">${cat}</option>`
+      ).join('');
+      filterSelect.value = currentVal;
+
+      // 3. 管理彈窗列表
+      const modalList = document.getElementById('modalTagList');
+      modalList.innerHTML = categories.map((cat, idx) => `
+        <span class="tag-chip">${cat} <span class="remove-tag" onclick="deleteCategory(${idx})">✖</span></span>
+      `).join('');
+    }
+
+    window.toggleFormTag = function(cat) {
+      if (selectedFormTags.includes(cat)) {
+        selectedFormTags = selectedFormTags.filter(c => c !== cat);
+      } else {
+        selectedFormTags.push(cat);
+      }
+      renderCategoryUI();
+    };
+
+    window.deleteCategory = function(idx) {
+      categories.splice(idx, 1);
+      saveCategories();
+      renderCategoryUI();
+    };
+
+    function saveCategories() {
+      localStorage.setItem('my_categories_data', JSON.stringify(categories));
+      syncData();
+    }
+
+    // 渲染書籍列表（支援搜尋與篩選）
+    function render() {
+      const list = document.getElementById('bookList');
+      const searchKeyword = document.getElementById('searchInput').value.trim().toLowerCase();
+      const catFilter = document.getElementById('filterCategory').value;
+      const readFilter = document.getElementById('filterRead').value;
+
+      let totalSpent = 0;
+      let readCount = 0;
+
+      // 數據計算與過濾
+      const filteredBooks = books.filter(b => {
+        // 關鍵字搜尋（比對 書名、作者、出版社、標籤）
+        const tagsStr = (b.tags || []).join(' ').toLowerCase();
+        const matchesSearch = !searchKeyword || 
+          b.title.toLowerCase().includes(searchKeyword) ||
+          (b.author || '').toLowerCase().includes(searchKeyword) ||
+          (b.publisher || '').toLowerCase().includes(searchKeyword) ||
+          tagsStr.includes(searchKeyword);
+
+        // 分類標籤篩選
+        const matchesCat = catFilter === 'all' || (b.tags && b.tags.includes(catFilter));
+
+        // 閱讀狀態篩選
+        const matchesRead = readFilter === 'all' || 
+          (readFilter === 'read' && b.read) || 
+          (readFilter === 'unread' && !b.read);
+
+        return matchesSearch && matchesCat && matchesRead;
+      });
+
+      if (filteredBooks.length === 0) {
+        list.innerHTML = '<p style="text-align:center; color:#94a3b8; padding:20px; font-size:13px;">沒有符合搜尋條件的書籍！</p>';
+      } else {
+        list.innerHTML = filteredBooks.map((b, idx) => {
+          const originalIdx = books.indexOf(b);
+          return `
+            <div class="book-item">
+              <div class="book-info">
+                <h3>${escapeHtml(b.title)}</h3>
+                <p>
+                  <span class="badge">${b.format === 'physical' ? '實體書' : '電子書'}</span>
+                  ${(b.tags || []).map(t => `<span class="badge badge-cat">\${t}</span>`).join('')}
+                  ${b.author ? '作者: ' + escapeHtml(b.author) : ''} 
+                  ${b.publisher ? ' | ' + escapeHtml(b.publisher) : ''}
+                </p>
+                <p>平台: ${escapeHtml(b.platform || '未標示')} | NT$ ${b.price || 0} | 日期: ${b.purchaseDate || '無'}</p>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+                <button onclick="toggleRead(${originalIdx})" class="btn-read ${b.read ? 'is-read' : ''}">
+                  ${b.read ? '📗 已讀完' : '📖 標為已讀'}
+                </button>
+                <button onclick="deleteBook(${originalIdx})" class="btn-danger">刪除</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 全局統計
+      books.forEach(b => {
+        totalSpent += Number(b.price || 0);
+        if (b.read) readCount++;
+      });
+
+      document.getElementById('statCount').textContent = books.length;
+      document.getElementById('statSpent').textContent = 'NT\$ ' + totalSpent.toLocaleString();
+      document.getElementById('statRead').textContent = readCount;
+    }
+
+    function syncData() {
+      localStorage.setItem('my_books_data', JSON.stringify(books));
+
+      if (db && currentUser) {
+        db.collection('users').doc(currentUser.uid).set({
+          books: books,
+          categories: categories,
+          lastUpdated: new Date().toISOString()
+        }).catch(err => showError("雲端同步失敗：" + err.message));
+      }
+    }
+
+    function loadCloudData() {
+      if (!db || !currentUser) return;
+      db.collection('users').doc(currentUser.uid).get().then(doc => {
+        if (doc.exists) {
+          const data = doc.data();
+          if (data.books) books = data.books;
+          if (data.categories) categories = data.categories;
+          localStorage.setItem('my_books_data', JSON.stringify(books));
+          localStorage.setItem('my_categories_data', JSON.stringify(categories));
+          renderCategoryUI();
+          render();
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('purchaseDate').valueAsDate = new Date();
+      renderCategoryUI();
+      render();
+      checkAndInitFirebase();
+
+      // 監聽搜尋與篩選
+      document.getElementById('searchInput').oninput = render;
+      document.getElementById('filterCategory').onchange = render;
+      document.getElementById('filterRead').onchange = render;
+
+      // 管理標籤 Modal
+      document.getElementById('manageTagsBtn').onclick = () => document.getElementById('tagModal').classList.remove('hidden');
+      document.getElementById('closeTagModalBtn').onclick = () => document.getElementById('tagModal').classList.add('hidden');
+      
+      document.getElementById('addNewTagBtn').onclick = () => {
+        const input = document.getElementById('newTagInput');
+        const val = input.value.trim();
+        if (val && !categories.includes(val)) {
+          categories.push(val);
+          input.value = '';
+          saveCategories();
+          renderCategoryUI();
+        }
+      };
+
+      // 新增書籍表單
+      document.getElementById('addBookForm').onsubmit = function(e) {
+        e.preventDefault();
+        
+        const newBook = {
+          title: document.getElementById('title').value.trim(),
+          author: document.getElementById('author').value.trim(),
+          publisher: document.getElementById('publisher').value.trim(),
+          platform: document.getElementById('platform').value.trim(),
+          price: document.getElementById('price').value,
+          purchaseDate: document.getElementById('purchaseDate').value,
+          format: document.getElementById('format').value,
+          read: document.getElementById('readStatus').value === 'read',
+          tags: [...selectedFormTags] // 存入選擇的分類標籤
+        };
+
+        if (!newBook.title) return;
+
+        books.unshift(newBook);
+        syncData();
+
+        // 重置欄位
+        document.getElementById('title').value = '';
+        document.getElementById('author').value = '';
+        document.getElementById('publisher').value = '';
+        document.getElementById('platform').value = '';
+        document.getElementById('price').value = '';
+        selectedFormTags = [];
+        renderCategoryUI();
+
+        render();
+      };
+
+      // 登入按鈕
+      document.getElementById('authBtn').onclick = function() {
+        if (!auth) return alert("Firebase 載入中，請稍後再試！");
+        if (currentUser) {
+          if (confirm("要登出 Google 帳號嗎？")) auth.signOut();
+        } else {
+          const provider = new firebase.auth.GoogleAuthProvider();
+          auth.signInWithPopup(provider).catch(err => {
+            if (err.code === 'auth/unauthorized-domain') {
+              showError(`<strong>⚠️ 網域未授權！</strong>請在 Firebase 加入網域：<code>${window.location.hostname}</code>`);
+            } else {
+              showError("登入失敗：" + err.message);
+            }
+          });
+        }
+      };
+    });
+
+    window.toggleRead = function(idx) {
+      if (books[idx]) {
+        books[idx].read = !books[idx].read;
+        syncData();
+        render();
+      }
+    };
+
+    window.deleteBook = function(idx) {
+      books.splice(idx, 1);
+      syncData();
+      render();
+    };
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  </script>
+</body>
+</html>
