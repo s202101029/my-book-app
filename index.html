@@ -40,8 +40,10 @@
     .btn-auth { background: #4f46e5; width: auto; padding: 6px 12px; font-size: 13px; margin: 0; }
     .btn-auth.is-logged-in { background: #059669; }
     .btn-danger { background: #ef4444; width: auto; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; color: white; cursor: pointer; }
+    .btn-edit { background: #0284c7; width: auto; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; color: white; cursor: pointer; }
     .btn-read { background: #64748b; width: auto; padding: 4px 8px; font-size: 12px; border: none; border-radius: 4px; color: white; cursor: pointer; }
     .btn-read.is-read { background: #10b981; }
+    .btn-cancel { background: #64748b; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 10px; font-size: 15px; display: none; }
     .btn-sm-text { background: none; border: none; color: #2563eb; font-size: 12px; cursor: pointer; text-decoration: underline; }
 
     .stats { display: flex; justify-content: space-around; text-align: center; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 10px; margin-bottom: 16px; }
@@ -107,13 +109,16 @@
     </div>
   </div>
 
-  <!-- 新增表單 -->
-  <div class="card">
+  <!-- 新增/編輯表單區塊 -->
+  <div class="card" id="formCard">
     <div class="card-title">
-      <span>➕ 快速新增書籍</span>
+      <span id="formTitle">➕ 快速新增書籍</span>
       <button type="button" class="btn-sm-text" id="manageTagsBtn">⚙️ 管理自訂分類標籤</button>
     </div>
     <form id="addBookForm">
+      <!-- 隱藏控制項，記錄當前編輯索引，-1 代表新增狀態 -->
+      <input type="hidden" id="editIndex" value="-1">
+
       <div class="form-grid">
         <input type="text" id="title" placeholder="書名 (必填)" required>
         <input type="text" id="author" placeholder="作者">
@@ -137,7 +142,10 @@
         <div id="formTagContainer" class="tag-container"></div>
       </div>
 
-      <button type="submit" class="btn" id="submitBtn">儲存書籍紀錄</button>
+      <div style="display: flex; gap: 8px;">
+        <button type="submit" class="btn" id="submitBtn">儲存書籍紀錄</button>
+        <button type="button" class="btn-cancel" id="cancelEditBtn">取消編輯</button>
+      </div>
     </form>
   </div>
 
@@ -186,14 +194,13 @@
     };
 
     let books = [];
-    let categories = ['漫畫', '輕小說', 'BL', '文學', '實用書']; // 預設類別
+    let categories = ['漫畫', '輕小說', 'BL', '文學', '實用書'];
     let selectedFormTags = [];
 
     let db = null;
     let auth = null;
     let currentUser = null;
 
-    // 載入本地存儲
     try {
       books = JSON.parse(localStorage.getItem('my_books_data') || '[]');
       const savedCats = localStorage.getItem('my_categories_data');
@@ -238,16 +245,13 @@
       }
     }
 
-    // 渲染表單與篩選選單的標籤
     function renderCategoryUI() {
-      // 1. 表單點選區
       const formContainer = document.getElementById('formTagContainer');
       formContainer.innerHTML = categories.map(cat => {
         const isSelected = selectedFormTags.includes(cat);
         return `<span class="tag-chip ${isSelected ? 'active' : ''}" onclick="toggleFormTag('${cat}')">${cat}</span>`;
       }).join('');
 
-      // 2. 下拉搜尋選單
       const filterSelect = document.getElementById('filterCategory');
       const currentVal = filterSelect.value;
       filterSelect.innerHTML = '<option value="all">所有分類標籤</option>' + categories.map(cat => 
@@ -255,7 +259,6 @@
       ).join('');
       filterSelect.value = currentVal;
 
-      // 3. 管理彈窗列表
       const modalList = document.getElementById('modalTagList');
       modalList.innerHTML = categories.map((cat, idx) => `
         <span class="tag-chip">${cat} <span class="remove-tag" onclick="deleteCategory(${idx})">✖</span></span>
@@ -282,7 +285,6 @@
       syncData();
     }
 
-    // 渲染書籍列表（支援搜尋與篩選）
     function render() {
       const list = document.getElementById('bookList');
       const searchKeyword = document.getElementById('searchInput').value.trim().toLowerCase();
@@ -292,9 +294,7 @@
       let totalSpent = 0;
       let readCount = 0;
 
-      // 數據計算與過濾
       const filteredBooks = books.filter(b => {
-        // 關鍵字搜尋（比對 書名、作者、出版社、標籤）
         const tagsStr = (b.tags || []).join(' ').toLowerCase();
         const matchesSearch = !searchKeyword || 
           b.title.toLowerCase().includes(searchKeyword) ||
@@ -302,10 +302,8 @@
           (b.publisher || '').toLowerCase().includes(searchKeyword) ||
           tagsStr.includes(searchKeyword);
 
-        // 分類標籤篩選
         const matchesCat = catFilter === 'all' || (b.tags && b.tags.includes(catFilter));
 
-        // 閱讀狀態篩選
         const matchesRead = readFilter === 'all' || 
           (readFilter === 'read' && b.read) || 
           (readFilter === 'unread' && !b.read);
@@ -316,7 +314,7 @@
       if (filteredBooks.length === 0) {
         list.innerHTML = '<p style="text-align:center; color:#94a3b8; padding:20px; font-size:13px;">沒有符合搜尋條件的書籍！</p>';
       } else {
-        list.innerHTML = filteredBooks.map((b, idx) => {
+        list.innerHTML = filteredBooks.map((b) => {
           const originalIdx = books.indexOf(b);
           return `
             <div class="book-item">
@@ -331,9 +329,12 @@
                 <p>平台: ${escapeHtml(b.platform || '未標示')} | NT$ ${b.price || 0} | 日期: ${b.purchaseDate || '無'}</p>
               </div>
               <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
-                <button onclick="toggleRead(${originalIdx})" class="btn-read ${b.read ? 'is-read' : ''}">
-                  ${b.read ? '📗 已讀完' : '📖 標為已讀'}
-                </button>
+                <div style="display:flex; gap:4px;">
+                  <button onclick="editBook(${originalIdx})" class="btn-edit">✏️ 編輯</button>
+                  <button onclick="toggleRead(${originalIdx})" class="btn-read ${b.read ? 'is-read' : ''}">
+                    ${b.read ? '📗 已讀完' : '📖 標為已讀'}
+                  </button>
+                </div>
                 <button onclick="deleteBook(${originalIdx})" class="btn-danger">刪除</button>
               </div>
             </div>
@@ -341,7 +342,6 @@
         }).join('');
       }
 
-      // 全局統計
       books.forEach(b => {
         totalSpent += Number(b.price || 0);
         if (b.read) readCount++;
@@ -350,6 +350,46 @@
       document.getElementById('statCount').textContent = books.length;
       document.getElementById('statSpent').textContent = 'NT\$ ' + totalSpent.toLocaleString();
       document.getElementById('statRead').textContent = readCount;
+    }
+
+    // 觸發編輯模式
+    window.editBook = function(idx) {
+      const book = books[idx];
+      if (!book) return;
+
+      document.getElementById('editIndex').value = idx;
+      document.getElementById('title').value = book.title || '';
+      document.getElementById('author').value = book.author || '';
+      document.getElementById('publisher').value = book.publisher || '';
+      document.getElementById('platform').value = book.platform || '';
+      document.getElementById('price').value = book.price || '';
+      document.getElementById('purchaseDate').value = book.purchaseDate || '';
+      document.getElementById('format').value = book.format || 'ebook';
+      document.getElementById('readStatus').value = book.read ? 'read' : 'unread';
+
+      selectedFormTags = [...(book.tags || [])];
+      renderCategoryUI();
+
+      // 切換 UI 標題與按鈕狀態
+      document.getElementById('formTitle').textContent = '✏️ 編輯書籍資料';
+      document.getElementById('submitBtn').textContent = '更新書籍紀錄';
+      document.getElementById('cancelEditBtn').style.display = 'block';
+
+      // 滑動回表單頂部
+      document.getElementById('formCard').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // 重置/取消編輯模式
+    function resetForm() {
+      document.getElementById('editIndex').value = '-1';
+      document.getElementById('addBookForm').reset();
+      document.getElementById('purchaseDate').valueAsDate = new Date();
+      selectedFormTags = [];
+      renderCategoryUI();
+
+      document.getElementById('formTitle').textContent = '➕ 快速新增書籍';
+      document.getElementById('submitBtn').textContent = '儲存書籍紀錄';
+      document.getElementById('cancelEditBtn').style.display = 'none';
     }
 
     function syncData() {
@@ -385,14 +425,13 @@
       render();
       checkAndInitFirebase();
 
-      // 監聽搜尋與篩選
       document.getElementById('searchInput').oninput = render;
       document.getElementById('filterCategory').onchange = render;
       document.getElementById('filterRead').onchange = render;
 
-      // 管理標籤 Modal
       document.getElementById('manageTagsBtn').onclick = () => document.getElementById('tagModal').classList.remove('hidden');
       document.getElementById('closeTagModalBtn').onclick = () => document.getElementById('tagModal').classList.add('hidden');
+      document.getElementById('cancelEditBtn').onclick = resetForm;
       
       document.getElementById('addNewTagBtn').onclick = () => {
         const input = document.getElementById('newTagInput');
@@ -405,11 +444,13 @@
         }
       };
 
-      // 新增書籍表單
+      // 表單提交（智慧判定 新增 或 編輯更新）
       document.getElementById('addBookForm').onsubmit = function(e) {
         e.preventDefault();
         
-        const newBook = {
+        const editIdx = parseInt(document.getElementById('editIndex').value, 10);
+
+        const bookData = {
           title: document.getElementById('title').value.trim(),
           author: document.getElementById('author').value.trim(),
           publisher: document.getElementById('publisher').value.trim(),
@@ -418,27 +459,24 @@
           purchaseDate: document.getElementById('purchaseDate').value,
           format: document.getElementById('format').value,
           read: document.getElementById('readStatus').value === 'read',
-          tags: [...selectedFormTags] // 存入選擇的分類標籤
+          tags: [...selectedFormTags]
         };
 
-        if (!newBook.title) return;
+        if (!bookData.title) return;
 
-        books.unshift(newBook);
+        if (editIdx >= 0 && editIdx < books.length) {
+          // 編輯模式：替換原本索引資料
+          books[editIdx] = bookData;
+        } else {
+          // 新增模式：插至列表最前面
+          books.unshift(bookData);
+        }
+
         syncData();
-
-        // 重置欄位
-        document.getElementById('title').value = '';
-        document.getElementById('author').value = '';
-        document.getElementById('publisher').value = '';
-        document.getElementById('platform').value = '';
-        document.getElementById('price').value = '';
-        selectedFormTags = [];
-        renderCategoryUI();
-
+        resetForm();
         render();
       };
 
-      // 登入按鈕
       document.getElementById('authBtn').onclick = function() {
         if (!auth) return alert("Firebase 載入中，請稍後再試！");
         if (currentUser) {
@@ -465,9 +503,12 @@
     };
 
     window.deleteBook = function(idx) {
-      books.splice(idx, 1);
-      syncData();
-      render();
+      if (confirm('確定要刪除這本書嗎？')) {
+        books.splice(idx, 1);
+        syncData();
+        resetForm();
+        render();
+      }
     };
 
     function escapeHtml(str) {
